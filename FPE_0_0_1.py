@@ -191,21 +191,29 @@ up, down = categorize_patterns(segmented_patterns)
 
 
 
-#Pattern to find the most similar
 def read_and_prepare_csv(file_path):
     dataset = pd.read_csv(file_path, delimiter='\t', 
                           names=['Date', 'Open', 'High', 'Low', 'Close', 'Volume'], 
                           parse_dates=['Date'])
 
-    # Keep only 'Date' and 'Close' columns
-    dataset = dataset[['Date', 'Close']]
+    # Set 'Date' as the index
+    dataset.set_index('Date', inplace=True)
+
+    # Remove Saturdays
+    dataset = dataset[dataset.index.dayofweek != 5]
+
+    # Keep only 'Close' column
+    dataset = dataset[['Close']]
 
     # Limit to the last 120 rows
     dataset = dataset.tail(120)
 
+    # Reset index to bring 'Date' back as a column
+    dataset.reset_index(inplace=True)
+
     return dataset
 
-df = read_and_prepare_csv("XAUUSD240.csv")
+df = read_and_prepare_csv("Data/XAUUSD1440.csv")
 
 def process_and_calculate_distance(df):
     scaler = MinMaxScaler(feature_range=(-1, 1))
@@ -274,6 +282,56 @@ def segment_dataframe(df, minArea=5):
     return last_pattern
 
 segmented_pattern = segment_dataframe(upDistance)
+
+def segment_dataframe(df, minArea=5):
+    checkA = 0
+    checkB = 0
+    halfA = []
+    halfB = []
+    last_pattern = None
+
+    for di in range(len(df)):
+        distance = df['Distance'].iloc[di]
+
+        if distance < 0:
+            if checkA == 0:
+                halfA.clear()
+                halfB.clear()
+                halfA.append(df.iloc[di])
+                checkA += 1
+            else:
+                halfA.append(df.iloc[di])
+            checkB = 0
+
+        elif distance > 0:
+            if checkB == 0:
+                halfB.clear()
+                halfB.append(df.iloc[di])
+                checkB += 1
+            else:
+                halfB.append(df.iloc[di])
+            checkA = 0
+
+        # Update the last pattern if both halves meet the minimum area requirement
+        if len(halfA) >= minArea and len(halfB) >= minArea:
+            last_pattern = halfA + halfB
+            halfA = [df.iloc[di]] if distance < 0 else []
+            halfB = [df.iloc[di]] if distance > 0 else []
+
+    # Check if the last row of the DataFrame is included in the last pattern
+    if last_pattern and (df.iloc[-1]['Date'] == last_pattern[-1]['Date']):
+        return last_pattern
+    else:
+        return None
+
+# Example usage
+# Assuming 'df' is your DataFrame with a 'Distance' column
+last_pattern = segment_dataframe(df)
+if last_pattern:
+    print("Last pattern found:", last_pattern)
+else:
+    print("No valid pattern found at the end of the DataFrame.")
+
 
 def find_and_plot_most_similar_pattern_with_next_move(test_pattern, known_patterns):
     min_distance = float('inf')
