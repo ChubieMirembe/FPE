@@ -29,7 +29,7 @@ def read_forex_data(pairs, timeframes):
     
     for pair in pairs:
         for timeframe in timeframes:
-            file_name = f"{pair}{timeframe}.csv"
+            file_name = f"Data/{pair}{timeframe}.csv"
             file_path = os.path.join(os.getcwd(), file_name)
 
             try:
@@ -185,30 +185,97 @@ def categorize_patterns(segmented_patterns):
 
 up, down = categorize_patterns(segmented_patterns)
 
-#Import the data 
-def read_csv_file(file_path):
+
+
+
+
+
+
+#Pattern to find the most similar
+def read_and_prepare_csv(file_path):
     dataset = pd.read_csv(file_path, delimiter='\t', 
                           names=['Date', 'Open', 'High', 'Low', 'Close', 'Volume'], 
                           parse_dates=['Date'])
+
+    # Keep only 'Date' and 'Close' columns
     dataset = dataset[['Date', 'Close']]
-    dataset.set_index('Date', inplace=True)
+
+    # Limit to the last 120 rows
+    dataset = dataset.tail(120)
+
     return dataset
 
+df = read_and_prepare_csv("XAUUSD240.csv")
 
-df_test = read_csv_file("XAUUSD240.CSV")
-weekly_splits_test = create_weekly_splits(df_test)
-updated_weekly_splits_test = process_and_plot_groups(weekly_splits_test)
-segmented_patterns_test = segment_dataframes(updated_weekly_splits_test, minArea=5)
-up_test, down_test = categorize_patterns(segmented_patterns_test)
+def process_and_calculate_distance(df):
+    scaler = MinMaxScaler(feature_range=(-1, 1))
+    regressor = LinearRegression()
+
+    # Check if the DataFrame is empty
+    if df.empty:
+        return None
+
+    # Ensure the 'Date' column is in datetime format and set it as the index
+    if not pd.api.types.is_datetime64_any_dtype(df['Date']):
+        df['Date'] = pd.to_datetime(df['Date'])
+    df.set_index('Date', inplace=True)
+
+    # Convert datetime index to ordinal for regression
+    X = np.array(df.index.map(pd.Timestamp.toordinal)).reshape(-1, 1)
+
+    # Fit the regressor and predict
+    regressor.fit(X, df['Close'])
+    yi = regressor.predict(X)
+
+    # Calculate the distance and scale it
+    distance = df['Close'] - yi
+    scaled_distance = scaler.fit_transform(distance.values.reshape(-1, 1))
+
+    # Reset index to bring 'Date' back as a column and add the 'Distance' column
+    df.reset_index(inplace=True)
+    df['Distance'] = scaled_distance.flatten()
+
+    return df
+
+upDistance = process_and_calculate_distance(df)
+
+def segment_dataframe(df, minArea=5):
+    checkA = 0
+    checkB = 0
+    halfA = []
+    halfB = []
+    last_pattern = None
+
+    for di in range(len(df)):
+        if df['Distance'].iloc[di] < 0:
+            if checkA == 0:
+                halfA.clear()
+                halfB.clear()
+                halfA.append(df.iloc[di])
+                checkA += 1
+            else:
+                halfA.append(df.iloc[di])
+            checkB = 0
+
+        elif df['Distance'].iloc[di] > 0:
+            if checkB == 0:
+                halfB.clear()
+                halfB.append(df.iloc[di])
+                checkB += 1
+            else:
+                halfB.append(df.iloc[di])
+            checkA = 0
+
+        if len(halfA) >= minArea and len(halfB) >= minArea:
+            last_pattern = halfA + halfB
+            halfA = [df.iloc[di]] if df['Distance'].iloc[di] < 0 else []
+            halfB = [df.iloc[di]] if df['Distance'].iloc[di] > 0 else []
+
+    return last_pattern
+
+segmented_pattern = segment_dataframe(upDistance)
 
 def find_and_plot_most_similar_pattern_with_next_move(test_pattern, known_patterns):
-    """
-    Find and plot the most similar pattern to the test pattern from known patterns of the same length,
-    including the next move in the most similar pattern.
-
-    :param test_pattern: The test pattern to compare (list of numeric values for 'Distance').
-    :param known_patterns: A list of known patterns to search through (list of lists of numeric values for 'Distance').
-    """
     min_distance = float('inf')
     most_similar_pattern = None
     most_similar_index = -1
@@ -248,5 +315,5 @@ def find_and_plot_most_similar_pattern_with_next_move(test_pattern, known_patter
     plt.legend()
     plt.grid(True)
     plt.show()
-    
-find_and_plot_most_similar_pattern_with_next_move(up_test[0], up)
+
+find_and_plot_most_similar_pattern_with_next_move(segmented_pattern, up)
