@@ -186,6 +186,24 @@ def categorize_patterns(segmented_patterns):
 up, down = categorize_patterns(segmented_patterns)
 
 
+def flatten_patterns_to_csv(segmented_patterns, output_file):
+    flattened_data = []
+
+    for pattern_id, pattern in enumerate(segmented_patterns):
+        for row in pattern:
+            # Adding PatternID to each row
+            row['PatternID'] = pattern_id
+            flattened_data.append(row)
+
+    # Convert the list of rows into a DataFrame
+    flattened_df = pd.DataFrame(flattened_data)
+
+    # Save to CSV
+    flattened_df.to_csv(output_file, index=False)
+
+flatten_patterns_to_csv(segmented_patterns, "allTrends.csv")
+flatten_patterns_to_csv(down, "upTrends.csv")
+flatten_patterns_to_csv(up, "downTrends.csv")
 
 
 
@@ -332,6 +350,24 @@ if last_pattern:
 else:
     print("No valid pattern found at the end of the DataFrame.")
 
+def categorize_single_pattern(pattern):
+    # Initialize variables to hold trend types
+    trend_type = None
+
+    if pattern and isinstance(pattern, list) and 'Distance' in pattern[0]:
+        first_distance = pattern[0]['Distance']
+
+        # Determine trend type based on the first 'Distance' value
+        if first_distance < 0:
+            trend_type = "down_trend"  # Down trend if first 'Distance' is negative
+        elif first_distance > 0:
+            trend_type = "up_trend"  # Up trend if first 'Distance' is positive
+
+    return trend_type
+
+# Example usage
+# Assuming 'single_pattern' is your pattern
+trend_type = categorize_single_pattern(last_pattern)
 
 def find_and_plot_most_similar_pattern_with_next_move(test_pattern, known_patterns):
     min_distance = float('inf')
@@ -375,3 +411,43 @@ def find_and_plot_most_similar_pattern_with_next_move(test_pattern, known_patter
     plt.show()
 
 find_and_plot_most_similar_pattern_with_next_move(segmented_pattern, up)
+
+def find_and_plot_most_similar_pattern_with_next_move_dtw(test_pattern, known_patterns):
+    min_distance = float('inf')
+    most_similar_pattern = None
+    most_similar_index = -1
+
+    # Convert the test pattern to a numpy array
+    test_array = np.array([p['Distance'] for p in test_pattern])
+
+    # Find the most similar pattern using DTW
+    for i, pattern in enumerate(known_patterns):
+        pattern_array = np.array([p['Distance'] for p in pattern])
+        distance, _ = fastdtw(test_array, pattern_array, dist=euclidean)
+        if distance < min_distance:
+            min_distance = distance
+            most_similar_pattern = pattern
+            most_similar_index = i
+
+    if most_similar_pattern is None:
+        print("No similar pattern found.")
+        return
+
+    # Plotting the patterns
+    plt.figure(figsize=(12, 6))
+    plt.plot(test_array, label="Test Pattern", marker='o')
+    similar_pattern_distances = [p['Distance'] for p in most_similar_pattern]
+    plt.plot(similar_pattern_distances, label="Most Similar Pattern", marker='x')
+
+    # Check if there's a next move in the most similar pattern
+    if most_similar_index + 1 < len(known_patterns):
+        next_move = known_patterns[most_similar_index + 1][0]['Distance']
+        similar_pattern_distances.append(next_move)
+        plt.plot(similar_pattern_distances, label="Most Similar Pattern with Next Move", marker='x', linestyle='--')
+
+    plt.title("Test Pattern vs Most Similar Pattern with Next Move (DTW)")
+    plt.xlabel("Index")
+    plt.ylabel("Distance")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
